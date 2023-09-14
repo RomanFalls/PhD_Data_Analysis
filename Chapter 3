@@ -1,0 +1,517 @@
+library(tidyverse)
+library(readxl)
+library(validate)
+library(tableone)
+library(magrittr)
+library(officer)
+library(flextable)
+library(magrittr)
+library(gtsummary)
+library(leaps)
+library(MASS)
+library(epiDisplay)
+library(ggplot2)
+library(ggpubr)
+library(Hmisc)
+
+#Chapter 3 Script
+
+phd_df <- read_excel("~/Desktop/PhD_Data/PHD_data_Final.xlsx")
+View(phd_df)
+
+#code for first experimental chapter data (Chapter 3)
+#extract data of hfref patients (variable "HFrEF" = 1, see data dictionary)
+#comparision will predominantly be on the basis of acute or chronich HF
+#i.e Phase == 0 refers to chronic HF, Phase == 1 is acute HF
+
+#check characteristics of each variable
+phd_df %>% glimpse()
+
+#last 5 variables aren't mistakes from excel import.
+phd_df <- phd_df %>% 
+  dplyr::select(-(c(V98,V99,V100,`filter_$`,...102 )))
+
+#check again
+phd_df %>% glimpse()
+#success
+
+?validator
+
+#all variables are doubles
+#need to change several of them to factors
+#test code
+factor_test <- phd_df %>% mutate_at(c("Phase","Sex","Hcholortreated"), as.factor)
+glimpse(factor_test)
+#success
+rm(factor_test)
+
+phd_df <- phd_df %>% mutate_at(c("Phase","Sex","Hcholortreated","HTNtreatedoruntreated","IHD","Stroke","AF",
+                                 "Diabetesmellitus","Smoking","Alcoholabuse","Substanceabuse","Thyroiddisease",
+                                 "Irondeficiencyanemia","OSA","Gout","COPDAsthma","GORD","Cancer","CKD","BetaBlocker",
+                                 "ACEi","ARB","Nitrate","CCB","Lipidloweringagents","OHAs", "Insulin", "Loopdiuretics",
+                                 "Thiazidediuretic","MRAs","Digoxin","PPI","Aspirin","OtherAntiplatlets",
+                                 "Anticoagulant","Entresto","HFrEF","RVdysfunction"), as.factor)
+
+phd_df %>% glimpse
+#success
+
+#The number of obsevations/patients seems to be too high
+#Data checks and validation required
+#check to see if obsverations == expected numbers
+phd_df %>% count(Phase == 1, HFrEF == 1)
+
+#there are 17 NA's which need to be removed
+phd_df <- phd_df %>% filter(rowSums(is.na(phd_df)) != ncol(phd_df))
+
+#this didn't work
+view(phd_df)
+
+#given there is definitely a value of 1 or 0 for phase, remove na's based on phase
+phd_df <- phd_df %>% drop_na(Phase)
+view(phd_df)
+
+#check to see if obsverations == expected numbers
+phd_df %>% count(Phase == 1, HFrEF == 1)
+#success
+
+#export this cleaner data frame so it's more straightforward to use in future chapters
+write_csv(phd_df,"/Users/roman/PhD Data/CleaneR_phd_data.csv")
+
+#extract data for all hfref patients
+all_hfref <- phd_df[phd_df$HFrEF == 1,]   #could also use all_hfref <- phd_df %>% filter(HFrEF == 1)
+view(all_hfref)
+
+#Data Check. Does this produce the same value for patients with an ejection fraction below 40%?
+all_hfref_ef_check <- phd_df[phd_df$LVEF <= 40,]
+identical(all_hfref,all_hfref_ef_check)
+#result = TRUE
+
+#remove identical df
+rm(all_hfref_ef_check)
+
+#extract acute and chronic hfref data seperately
+acute_hfref <- all_hfref[all_hfref$Phase == 1,]
+chronic_hfref <- all_hfref[all_hfref$Phase == 0,]
+view(acute_hfref)
+
+#background characteristics table
+table_1_list_vars <- c("Phase","Age","Sex","Hcholortreated","HTNtreatedoruntreated","IHD","Stroke","AF",
+                       "Diabetesmellitus","Smoking","Alcoholabuse","Substanceabuse","Thyroiddisease",
+                       "Irondeficiencyanemia","OSA","Gout","COPDAsthma","GORD","Cancer","CKD","BetaBlocker",
+                       "ACEi","ARB","Nitrate","CCB","Lipidloweringagents","OHAs", "Insulin", "Loopdiuretics",
+                       "Thiazidediuretic","MRAs","Digoxin","PPI","Aspirin","OtherAntiplatlets",
+                       "Anticoagulant","Entresto","HFrEF","LVEF","RVdysfunction")
+
+table1 <- CreateTableOne(vars = table_1_list_vars, data = all_hfref,strata = c("Phase"), export.word = TRUE)
+table1
+
+#Table1 looks good. The labels from Excel didn't carry over so we can relabel them here or it may be easier in word
+
+#Check normality of continous variables
+#"Age" is only continuous variable in this table
+shapiro.test(acute_hfref$Age)
+shapiro.test(chronic_hfref$Age)
+#age is normally distributed in both groups
+
+#export table 1
+table_1_p <- print(table1, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
+write.csv(table_1_p, file = "myTable.csv")
+getwd()
+#success
+
+#test
+table_2 <- all_hfref %>%
+  select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`, SCAIxAv,Phase) %>%              #variables needed,no2,no3,adma,aix
+  tbl_summary(
+    by = Phase,
+    missing = "no",
+    statistic = SCAIxAv ~ "{mean} ({sd})"
+    ) %>%
+  add_difference()
+
+print(table_2)
+  
+
+
+#MULTIVARIABLE ANALYSIS
+#from Table 1 data
+#select variables which were significant on chi squared test
+#can also include variables which were close to significance level given we'll perform 
+#a backwards elimination logistic regresstion
+
+#The variables that were significant were:
+#hypertension, organic nitrates, thiazide diuretics, MRAs. Also include age and sex.
+
+
+initial_log_model <-
+  glm(Phase ~ Sex + Age + HTNtreatedoruntreated + MRAs + Nitrate + NitriteNO2nM, data = all_hfref, family = binomial())
+finalModel <- stepAIC(initial_log_model, direction = "backward")
+summary(initial_log_model)
+view(all_hfref)
+
+class(all_hfref$NitriteNO2nM)
+
+#get Odds ratios, confidence intervals and p values for initial logistic regression model
+logistic.display(initial_log_model)
+
+#MRAs, organic nitrates and HTN all significant for the logistic regression model.
+#
+
+
+#Graphs to plot
+#difference between phases for primary and outcome variables
+#correlation of primary and secondary outcome measures
+
+#lets quickly look at the correlation results, then we can plot them
+#first try individual correlations for secondary outcomes, then make a correlation matrix
+cor.test(all_hfref$NitriteNO2nM,all_hfref$ADMAμM,method = "spearman")
+
+#The above was successful but need to find more efficient way to complete
+#NB to use if there are incomplete observations: cor(my_data, use = "complete.obs")
+
+corr_data_matrix_ch3 <- 
+  all_hfref %>%
+  dplyr::select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`,SCAIxAv)
+
+cor(corr_data_matrix_ch3, method = "spearman", use = "complete.obs")
+#success, now do the same but for the p values
+
+rcorr(as.matrix(corr_data_matrix_ch3), type = "spearman")
+#nice, this is a way better result
+#now have all data required for this outcome
+
+
+#Unsure which type of plot will look the best, let's try a boxplot
+all_hfref %>% 
+  dplyr::select(NitriteNO2nM,Phase)%>%
+  boxplot(NitriteNO2nM ~ Phase,
+          main="Different boxplots for each month",
+          xlab="Month Number",
+          ylab="Degree Fahrenheit",
+          col="orange",
+          border="brown"
+  )
+
+?boxplot
+all_hfref %>%
+  dplyr::select(NitriteNO2nM,Phase)%>%
+stripchart(NitriteNO2nM ~ Phase,
+           vertical = TRUE,
+           method = jitter())
+
+#try a few different geoms to see which one is suits better.
+#box,jitter, dotplot etc
+
+#figure 2 as Box, Plasma NO2- in chronic and acute HFrEF
+
+figure_1_box <- all_hfref %>%
+  ggplot(aes(x=Phase, y=NitriteNO2nM)) + 
+  geom_boxplot()
+figure_1_box <- figure_1_box + 
+  scale_y_log10()
+figure_1_box
+#success, got the basics at least.
+
+#figure 2 as Jitter
+figure_1_jitter <- all_hfref %>%
+  ggplot(aes(x=Phase, y=NitriteNO2nM)) + 
+  geom_jitter()
+figure_1_jitter <- figure_1_jitter + 
+  scale_y_log10()
+figure_1_jitter
+#good so far, need to trim the width and add median
+
+#figure 2 as dotplot
+figure_1_dot <- all_hfref %>%
+  ggplot(aes(x=Phase, y=NitriteNO2nM)) + 
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10()                           #change y axis to log scale as data is non-gaussian
+  
+#print to check progress
+figure_1_dot
+#add median line
+figure_1_dot <- figure_1_dot + stat_summary(fun.y = median, geom="crossbar",
+             size=0.3, color="red", width = 0.4)
+figure_1_dot
+
+#also add p value
+figure_1_dot <- figure_1_dot + stat_compare_means()
+
+#graph looks good so far, need to updates asthetics.
+#relabel both axes
+figure_1_dot <- figure_1_dot + labs(title = expression(bold("Plasma NO"[2]^"-"*~"in Chronic and Acute HFrEF")),
+                                    y = expression(bold("NO"[2]^"-"*~"(nM)")),
+                                    x = "")
+
+figure_1_dot
+#success
+
+
+#change the 0 and 1 to Chronic HFrEF and Acute HfrEF respectively
+figure_1_dot <- figure_1_dot + 
+  scale_x_discrete(labels=c("0" = "Chronic HFrEF", "1" = "Acute HFrEF"))
+figure_1_dot
+#success
+
+#make background white/transparent
+figure_1_dot <- figure_1_dot + theme_classic()
+figure_1_dot
+
+#Make title and labels bold
+figure_1_dot <- figure_1_dot + theme(plot.title = element_text(face = "bold"),
+                                     axis.title = element_text(face = "bold"),
+                                     axis.text.x = element_text(face = "bold"))
+figure_1_dot
+#success
+
+#Now for figure 2
+#create dotplot for plasma nitrate levels in chronic HFrEF and Acute HFrEF patients
+
+
+
+#figure 2 as dotplot
+figure_2_dot <- all_hfref %>%
+  ggplot(aes(x=Phase, y=NitrateNO3uM)) + 
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10()                           #change y axis to log scale as data is non-gaussian
+
+#print to check progress
+figure_2_dot              #so far so good
+
+#add median line
+figure_2_dot <- figure_2_dot + stat_summary(fun.y = median, geom="crossbar",
+                                            size=0.3, color="red", width = 0.4) + 
+  stat_compare_means()
+
+#check again
+figure_2_dot
+
+#graph looks good so far, need to updates asthetics.
+#relabel both axes
+figure_2_dot <- figure_2_dot + labs(title = expression(bold("Plasma NO"[3]^"-"*~"in Chronic and Acute HFrEF")),
+                                    y = expression(bold("NO"[3]^"-"*~"(µM)")),
+                                    x = "")
+
+#check again
+figure_2_dot
+#success
+
+
+#change the 0 and 1 to Chronic HFrEF and Acute HfrEF respectively
+figure_2_dot <- figure_2_dot + 
+  scale_x_discrete(labels=c("0" = "Chronic HFrEF", "1" = "Acute HFrEF"))
+
+#check again
+figure_2_dot
+#success
+
+#make background white/transparent
+figure_2_dot <- figure_2_dot + theme_classic()
+figure_2_dot
+
+#Make title and labels bold
+figure_2_dot <- figure_2_dot + theme(plot.title = element_text(face = "bold"),
+                                     axis.title = element_text(face = "bold"),
+                                     axis.text.x = element_text(face = "bold"))
+figure_2_dot
+#success
+
+#Nice. Need to perform some correlation analyses for the secondary outcome variables
+#start by graphing no2- against no3-
+
+figure_3_scatter <- all_hfref %>%
+  ggplot(aes(x = NitriteNO2nM, y = NitrateNO3uM)) +
+            geom_point(aes(shape = Phase, colour = Phase), size = 3) +
+            theme_classic2()
+            
+
+figure_3_scatter <- figure_3_scatter + labs(caption = expression(bold("Correlation between plasma nitrite and nitrate in the total HFrEF cohort")),
+                                           y = expression(bold("Plasma NO"[3]^"-"*~"(µM)")),
+                                           x = expression(bold("Plasma NO"[2]^"-"*~"(nM)")))
+#check plot
+figure_3_scatter
+#so far, so good. Need to change "Phase" to Acute and Chronic
+#also bold "Phase" in the legend
+#Need to centre plot title and make font bigger
+
+#Centre caption and increase size of text
+figure_3_scatter <- figure_3_scatter + theme(plot.caption = element_text(hjust=0.5, size=rel(1.1)))
+
+#make the legend bold, add box around legend
+figure_3_scatter <- figure_3_scatter + theme(legend.title = element_text(colour="black", size=10, 
+                                      face="bold"),
+                         legend.background = element_rect(fill="white",
+                                                          size=0.5, linetype="solid", 
+                                                          colour ="black"))
+figure_3_scatter <- figure_3_scatter +  scale_shape_discrete(labels = c("Chronic", "Acute")) +
+  scale_colour_discrete(labels = c("Chronic", "Acute"))
+
+#final check
+figure_3_scatter
+#nice
+
+#figure 4, dot plot displaying plasma ADMA concentrations between patients with acute and chronic HFrEF
+#try and keep code more condensed
+
+ADMA_HFrEF_dotplot <- all_hfref %>%
+  ggplot(aes(x = Phase,
+             y = ADMAμM)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10(limits = c(0.01,10)) + 
+  
+  labs(caption = expression(bold("Plasma ADMA in Chronic and Acute HFrEF")),
+       y = expression(bold("ADMA (µM)")),
+       x = "") +
+  
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("0" = "Chronic", "1" = "Acute")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 1)
+  
+
+ADMA_HFrEF_dotplot
+
+
+#figure_5 dotplot displaying difference in concentrations of 3NT between acute and chronic HFrEF
+
+figure_5_dot_3NT <- 
+  all_hfref %>%
+  ggplot(aes(x = Phase,
+             y = `@3NTnM`)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10(limits = c(10,1000)) + 
+  
+  labs(caption = expression(bold("Plasma 3-NT in Chronic and Acute HFrEF")),
+       y = expression(bold("3-NT (nM)")),
+       x = "") +
+  
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("0" = "Chronic", "1" = "Acute")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 3)
+
+figure_5_dot_3NT
+#success
+
+#compare AIx between chronic and acute HFrEF using a dotplot
+
+figure_6_dot_AIx <- 
+  all_hfref %>%
+  ggplot(aes(x = Phase,
+             y = SCAIxAv)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=50,
+               binwidth = 0.07) + 
+  scale_y_continuous(limits = c(0,100)) +
+  
+  labs(caption = expression(bold("AIx in Chronic and Acute HFrEF")),
+       y = expression(bold("AIx (%)")),
+       x = "") +
+  
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("0" = "Chronic", "1" = "Acute")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 100)
+
+figure_6_dot_AIx
+#success
+
+#need to check correlations of no2 concentrations with both ADMA and 3NT
+#make geom_point() graph of each of these, then perform correlation analyses
+#try to tidy the code from previous correlation graph
+
+#Correlation between plasma NO2- and ADMA in the total HFrEF cohort
+
+figure_7_adma_no2_corr <- 
+  all_hfref %>%
+  ggplot(aes(x = NitriteNO2nM, y = ADMAμM)) +
+  geom_point(aes(shape = Phase, colour = Phase), size = 3) +
+  theme_classic2() + 
+  
+labs(caption = expression(bold("Correlation between plasma nitrite and ADMA in the total HFrEF cohort")),
+                                            y = expression(bold("Plasma ADMA (µM)")),
+                                            x = expression(bold("Plasma NO"[2]^"-"*~"(nM)"))) +
+
+theme(plot.caption = element_text(hjust=0.5, size=rel(1)),
+      legend.title = element_text(colour="black", size=10,face="bold"),
+      legend.background = element_rect(fill="white",size=0.5, linetype="solid", colour ="black")) +
+  
+scale_shape_discrete(labels = c("Chronic", "Acute")) +
+  scale_colour_discrete(labels = c("Chronic", "Acute"))
+
+#check plot
+figure_7_adma_no2_corr
+#success
+
+
+#now create scatterplot of NO2 and 3NT in the HFrEF patient cohort
+#Correlation between plasma NO2- and ADMA in the total HFrEF cohort
+
+figure_8_3NT_no2_corr <- 
+  all_hfref %>%
+  ggplot(aes(x = NitriteNO2nM, y = `@3NTnM`)) +
+  geom_point(aes(shape = Phase, colour = Phase), size = 3) +
+  theme_classic2() + 
+  
+  labs(caption = expression(bold("Correlation between plasma nitrite and 3-NT in the total HFrEF cohort")),
+       y = expression(bold("Plasma 3-NT (nM)")),
+       x = expression(bold("Plasma NO"[2]^"-"*~"(nM)"))) +
+  
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1)),
+        legend.title = element_text(colour="black", size=10,face="bold"),
+        legend.background = element_rect(fill="white",size=0.5, linetype="solid", colour ="black")) +
+  
+  scale_shape_discrete(labels = c("Chronic", "Acute")) +
+  scale_colour_discrete(labels = c("Chronic", "Acute"))
+
+#final check of scatterplot
+figure_8_3NT_no2_corr
+#success
