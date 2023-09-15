@@ -1,1 +1,356 @@
 # PhD_Data_Analysis
+library(readxl)
+library(validate)
+library(tableone)
+library(magrittr)
+library(officer)
+library(flextable)
+library(magrittr)
+library(gtsummary)
+library(leaps)
+library(MASS)
+library(epiDisplay)
+library(ggplot2)
+library(ggpubr)
+library(Hmisc)
+library(common)
+library(expss)
+library(tidyverse)
+#Chapter 4 Script
+
+#load cleaned data from chapter 3
+#use read_labelled_csv to make sure labels are included
+getwd()
+phd_data <- read_labelled_csv("/Users/roman/PhD Data/CleaneR_phd_data.csv")
+glimpse(phd_data)
+view(phd_data)
+
+#In chapter 4, we're looking at HFpEF patients only
+# filter by both HFrEF = 0 and LVEF >= 50 to see if they match
+
+all_HFpEF <- phd_data %>%
+  filter(HFrEF == "No")
+
+all_HFpEF_quality_check <- phd_data %>% 
+  filter(LVEF >= 50)
+
+identical(all_HFpEF,all_HFpEF_quality_check)
+# = TRUE
+
+#remove quailty check
+rm(all_HFpEF_quality_check)
+
+view(all_HFpEF)
+
+#create acute and chronic HFpEF groups for later
+acute_hfpef <- all_HFpEF %>%
+               dplyr::filter(Phase == "Acute")
+#now chronic
+chronic_hfpef <- all_HFpEF %>%
+  dplyr::filter(Phase == "Chronic")
+
+
+#Create table 1 for HFpEF cohort, splitting by phase
+##### remember inserting new DF idea from chapter 3
+#it says in createtableone that for the vars = argument, "If empty, all variables in the data frame specified in the data argument are used."
+#try creating a data frame for just table on variables
+Table1_dataframe <- all_HFpEF %>%
+  dplyr::select(Phase:RVdysfunction)
+
+table1 <- CreateTableOne(data = Table1_dataframe, 
+                         strata = c("Phase"))
+#view table1
+table1
+
+#Check normality of continous variables
+#"Age" and "LVEF" are the only continuous variable in this table
+shapiro.test(acute_hfpef$Age)
+shapiro.test(chronic_hfpef$Age)
+#age is normally distributed
+#now LVEF
+shapiro.test(acute_hfpef$LVEF)
+shapiro.test(chronic_hfpef$LVEF)
+#both are nonnormal distribution
+#try print with labels
+print(table1, varLabels = T, nonnormal = "LVEF")
+?print.TableOne
+
+print_table_one <- print(table1,varLabels = T, nonnormal = "LVEF")
+write.csv(print_table_one, file = "CH4_Table_1_labelled.csv")
+#success
+
+#create table 2 for chapter 4
+table_2 <- all_HFpEF %>%
+  dplyr::select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`, SCAIxAv,Phase) %>%             
+  tbl_summary(
+    by = Phase,
+    missing = "no",
+    statistic = SCAIxAv ~ "{mean} ({sd})"
+  ) %>%
+  add_p
+
+print(table_2)
+
+
+##MULTIVARIABLE ANALYSIS CHAPTER 4
+
+all_HFpEF$Phase <- as_factor(all_HFpEF$Phase)
+
+initial_log_model <- 
+  glm(Phase ~ Sex + 
+        Age + Smoking + Anticoagulant + NitriteNO2nM,
+      data = all_HFpEF, family = binomial())
+
+summary(initial_log_model)
+backwardsModel <- stepAIC(initial_log_model, direction = "backward")
+summary(backwardsModel)
+
+#get Odds ratios, confidence intervals and p values for initial logistic regression model
+logistic.display(backwardsModel)
+
+#nitrite_glm
+nitrite_glm <-
+  glm(Phase ~ Anticoagulant + NitriteNO2nM,
+      data = all_HFpEF, family = binomial())
+
+summary(nitrite_glm)
+
+#Nitrate no3 glm model
+nitrate_glm <- 
+  glm(Phase ~ Anticoagulant + NitrateNO3uM,
+      data = all_HFpEF,
+      family = binomial())
+
+summary(nitrate_glm)
+
+
+#ADMA glm model
+ADMA_glm <- 
+  glm(Phase ~ Anticoagulant + ADMAμM,
+      data = all_HFpEF,
+      family = binomial())
+
+summary(ADMA_glm)
+
+
+#3-NT model
+nitrotyrosine_glm <- 
+  glm(Phase ~ Anticoagulant + `@3NTnM`,
+      data = all_HFpEF,
+      family = binomial())
+
+summary(nitrotyrosine_glm)
+
+
+#AIx Model
+AIx_glm <-
+  glm(Phase ~ Anticoagulant + SCAIxAv,
+      data = all_HFpEF,
+      family = binomial())
+
+summary(AIx_glm)
+
+#### Correlation analysis ####
+#correlation of primary and secondary outcome measures
+#most efficient way is to create a matrix
+
+corr_data_matrix_ch3 <- 
+  all_HFpEF %>%
+  dplyr::select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`,SCAIxAv)
+
+cor(corr_data_matrix_ch3, method = "spearman", use = "complete.obs")
+#success, now do the same but for the p values
+
+rcorr(as.matrix(corr_data_matrix_ch3), type = "spearman")
+#nice, this is a way better result
+#now have all data required for this outcome
+
+
+### Plots for Chapter 4 ####
+
+#Figure 1, Chapter 4 - Compare nitrite concentratinos between acute and chronic HF
+Nitrite_HFpEF_dotplot <- all_HFpEF %>%
+  ggplot(aes(x = Phase,
+             y = NitriteNO2nM)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10() + 
+  
+  labs(caption = expression(bold("Plasma NO"[2]^"-"*~"in Chronic and Acute HFpEF")),
+       y = expression(bold("NO"[2]^"-"*~"(nM)")),
+       x = "") +
+  
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFpEF", "Acute" = "Acute HFpEF")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 3)
+
+Nitrite_HFpEF_dotplot
+
+#save plot
+ggsave(filename = "Chapter 4 Figure 1 Nitrite dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#Figure 2 Chapter 4, Compare nitrate concentrations between acute and chronic HFpEF
+Nitrate_HFpEF_dotplot <- all_HFpEF %>%
+  ggplot(aes(x = Phase,
+             y = NitrateNO3uM)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10() + 
+  
+  labs(caption = expression(bold("Plasma NO"[3]^"-"*~"in Chronic and Acute HFpEF")),
+       y = expression(bold("NO"[3]^"-"*~"(µM)")),
+       x = "") +
+  
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFpEF", "Acute" = "Acute HFpEF")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 3)
+Nitrate_HFpEF_dotplot
+#save plot
+ggsave(filename = "Chapter 4 Figure 2 Nitrate dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#Figure 3, Chapter 4 - Compare ADMA concentrations between acutre and chronic HFpEF
+ADMA_HFpEF_dotplot <- all_HFpEF %>%
+  ggplot(aes(x = Phase,
+             y = ADMAμM)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10(limits = c(0.01,10)) + 
+  
+  labs(caption = expression(bold("Plasma ADMA in Chronic and Acute HFpEF")),
+       y = expression(bold("ADMA (µM)")),
+       x = "") +
+  
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFpEF", "Acute" = "Acute HFpEF")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 1)
+
+#test
+ADMA_HFpEF_dotplot
+
+#save
+#save plot
+ggsave(filename = "Chapter 4 Figure 3 ADMA dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#figure 4 chapter 4, 3NT in HFpEF
+Nitrotyrosine_HFpEF_dotplot <- all_HFpEF %>%
+  ggplot(aes(x = Phase,
+             y = `@3NTnM`)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=1,
+               binwidth = 0.07) + 
+  scale_y_log10() + 
+  
+  labs(caption = expression(bold("Plasma 3-NT in Chronic and Acute HFpEF")),
+       y = expression(bold("3-NT (nM)")),
+       x = "") +
+  
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFpEF", "Acute" = "Acute HFpEF")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 3.5)
+#view
+Nitrotyrosine_HFpEF_dotplot
+
+#save plot
+ggsave(filename = "Chapter 4 Figure 4 3-NT dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#Figure 5 AIx dotplot
+AIx_HFpEF_dotplot <- all_HFpEF %>%
+  ggplot(aes(x = Phase,
+             y = SCAIxAv)) +
+  geom_dotplot(binaxis = "y",
+               stackdir='center',
+               stackratio=2,
+               dotsize=50,
+               binwidth = 0.07) + 
+  scale_y_continuous(limits = c(0,80)) +
+  labs(caption = expression(bold("AIx in Chronic and Acute HFpEF")),
+       y = expression(bold("AIx (%)")),
+       x = "") +
+  stat_summary(fun.y = median, geom="crossbar",
+               size=0.3, color="red", width = 0.4) + 
+  
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFpEF", "Acute" = "Acute HFpEF")) +
+  
+  theme(plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(face = "bold")) +
+  theme_pubr() +
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1.1))) +
+  #add p value
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 1)
+AIx_HFpEF_dotplot
+
+#save
+ggsave(filename = "Chapter 4 Figure 5 AIx dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
