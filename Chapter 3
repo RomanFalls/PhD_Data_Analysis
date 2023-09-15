@@ -1,4 +1,3 @@
-library(tidyverse)
 library(readxl)
 library(validate)
 library(tableone)
@@ -13,6 +12,9 @@ library(epiDisplay)
 library(ggplot2)
 library(ggpubr)
 library(Hmisc)
+library(common)
+library(expss)
+library(tidyverse) #always load tidyverse last
 
 #Chapter 3 Script
 
@@ -28,6 +30,7 @@ View(phd_df)
 phd_df %>% glimpse()
 
 #last 5 variables aren't mistakes from excel import.
+#need to use dplyr:: before the select function, currently overwritten by MASS
 phd_df <- phd_df %>% 
   dplyr::select(-(c(V98,V99,V100,`filter_$`,...102 )))
 
@@ -35,7 +38,6 @@ phd_df <- phd_df %>%
 phd_df %>% glimpse()
 #success
 
-?validator
 
 #all variables are doubles
 #need to change several of them to factors
@@ -55,30 +57,138 @@ phd_df <- phd_df %>% mutate_at(c("Phase","Sex","Hcholortreated","HTNtreatedorunt
 phd_df %>% glimpse
 #success
 
-#The number of obsevations/patients seems to be too high
+#The number of observations/patients seems to be too high
 #Data checks and validation required
-#check to see if obsverations == expected numbers
+#check to see if observations == expected numbers
 phd_df %>% count(Phase == 1, HFrEF == 1)
 
 #there are 17 NA's which need to be removed
 phd_df <- phd_df %>% filter(rowSums(is.na(phd_df)) != ncol(phd_df))
 
-#this didn't work
-view(phd_df)
+#the above code didn't work
+tail(phd_df,20)
 
 #given there is definitely a value of 1 or 0 for phase, remove na's based on phase
 phd_df <- phd_df %>% drop_na(Phase)
 view(phd_df)
 
-#check to see if obsverations == expected numbers
+#check to see if observations == expected numbers
 phd_df %>% count(Phase == 1, HFrEF == 1)
 #success
 
+#Numbers look good, need to address labels before splitting dataset
+view(phd_df)
+#The labels from Excel didn't carry over
+#relabel them here
+#########
+phd_df_recode_test <- phd_df %>%
+  mutate(across(c("Hcholortreated","HTNtreatedoruntreated","IHD","Stroke","AF"), 
+                ~factor(ifelse(.x == "1","Yes","No"))))
+head(phd_df_recode_test)
+#success
+rm(phd_df_recode_test)
+
+phd_df <- phd_df %>%
+  mutate(across(c("Hcholortreated","HTNtreatedoruntreated","IHD","Stroke","AF",
+                  "Alcoholabuse","Substanceabuse","Thyroiddisease",
+                  "OSA","Gout","COPDAsthma","GORD","Cancer","CKD","BetaBlocker",
+                  "ACEi","ARB","Nitrate","CCB","Lipidloweringagents","OHAs", "Insulin", "Loopdiuretics",
+                  "Thiazidediuretic","MRAs","Digoxin","PPI","Aspirin","OtherAntiplatlets",
+                  "Anticoagulant","Entresto","HFrEF","RVdysfunction"), 
+                ~factor(ifelse(.x == "1","Yes","No"))))
+
+head(phd_df)
+#success
+#need to change phase, sex, diabetes and smoking
+
+#recode Phase variable to acute/chronic
+phd_df <- phd_df %>%
+  dplyr::mutate(Phase=dplyr::recode(Phase, `1` = "Acute", `0` = "Chronic"))
+
+#recode sex
+phd_df <- phd_df %>%
+  dplyr::mutate(Sex=dplyr::recode(Sex, `1` = "Male", `0` = "Female"))
+
+#try recooding multilpe variables using the same code
+
+phd_df <- phd_df %>%
+  dplyr::mutate(Diabetesmellitus=dplyr::recode(Diabetesmellitus, `0` = "No", `1` = "Type 1", `2` = "Type 2"),
+         Smoking=dplyr::recode(Smoking, `0` = "Non Smoker", `1` = "Ex Smoker", `2` = "Current Smoker"))
+
+
+#recheck after recoding
+view(phd_df)
+look_for(phd_df)
+
+#Almost done, need to change Iron/Anemia
+phd_df <- phd_df %>%
+  dplyr::mutate(Irondeficiencyanemia=dplyr::recode(Irondeficiencyanemia,
+                                     `0` = "None", 
+                                     `1` = "Iron Deficient", 
+                                     `2` = "Anemic",
+                                     `3` = "Both"))
+phd_df$Irondeficiencyanemia
+
+#factor levels looks good
+#need to add label to all variables we'll use in the analysis
+#start with table1 relabelling
+phd_df <- phd_df %>%
+set_variable_labels(Hcholortreated = " Hypercholesterolemia",
+                    HTNtreatedoruntreated = "Hypertension",
+                    IHD = "Ischaemic Heart Disease",
+                    AF = "Atrial Fibrillation",
+                    Diabetesmellitus = "Diabetes Mellitus",
+                    Smoking = "Smoking Status",
+                    Alcoholabuse = "Alcohol Abuse",
+                    Substanceabuse = "Substance Abuse",
+                    Thyroiddisease = "Thyroid Disease",
+                    Irondeficiencyanemia = "Iron Deficiency/Anemia",
+                    OSA = "Obstructive Sleep Apnea",
+                    COPDAsthma = "COPD/Asthma",
+                    CKD = "Chronic Kidney Disease",
+                    BetaBlocker = "Beta Blocker",
+                    ACEi = "ACE Inhibitor",
+                    CCB = "Calcium Channel Blocker",
+                    OHAs = "Oral Hyperglycemic Agents",
+                    Lipidloweringagents = "Lipid Lowering Agents",
+                    Loopdiuretics = "Loop Diuretucs",
+                    Thiazidediuretic = "Thiazide Diuretics",
+                    MRAs = "Mineralocorticosteriod Receptor Antagonists",
+                    PPI = "Proton Pump Inhibitor",
+                    OtherAntiplatlets = "Other Antiplatelets",
+                    Anticoagulant = "Anticoagulants",
+                    Entresto = "Sacubutril/Valsartan combination",
+                    RVdysfunction = "RV Dysfunction")
+
+
+view(phd_df)
+#looks good
+#also need to relabel the main outcome variables
+#test with nitrite variables
+phd_df <- phd_df %>%
+  set_variable_labels(NitriteNO2nM = "NO"%p%subsc("2")%p%supsc("-")%p%" (nM)")
+view(phd_df)
+#success
+
+#relabel rest of the outcome variables
+phd_df <- phd_df %>%
+  set_variable_labels(NitrateNO3uM = "NO"%p%subsc("3")%p%supsc("-")%p%" ("%p%symbol("mu")%p%"M)",
+                      ADMAμM = "ADMA ("%p%symbol("mu")%p%"M)",
+                      `@3NTnM` = "Nitrotyrosine (3-NT) (nM)",
+                      MPOngml = "Myeloperoxidase (ng/ml)",
+                      BNPpgml = "B-Type Natriuretic Peptide (pg/ml)",
+                      CystatinCugml = "Cystatin C ("%p%symbol("mu")%p%"M)",
+                      SCAIxAv = "AIx (%)")
+view(phd_df)
+
 #export this cleaner data frame so it's more straightforward to use in future chapters
-write_csv(phd_df,"/Users/roman/PhD Data/CleaneR_phd_data.csv")
+#use write_labelled_csv to ensure labels are included
+write_labelled_csv(phd_df,"/Users/roman/PhD Data/CleaneR_phd_data.csv")
+
+
 
 #extract data for all hfref patients
-all_hfref <- phd_df[phd_df$HFrEF == 1,]   #could also use all_hfref <- phd_df %>% filter(HFrEF == 1)
+all_hfref <- phd_df[phd_df$HFrEF == "Yes",]   #could also use all_hfref <- phd_df %>% filter(HFrEF == 1)
 view(all_hfref)
 
 #Data Check. Does this produce the same value for patients with an ejection fraction below 40%?
@@ -89,10 +199,11 @@ identical(all_hfref,all_hfref_ef_check)
 #remove identical df
 rm(all_hfref_ef_check)
 
-#extract acute and chronic hfref data seperately
-acute_hfref <- all_hfref[all_hfref$Phase == 1,]
-chronic_hfref <- all_hfref[all_hfref$Phase == 0,]
+#extract acute and chronic hfref data separately in case it's needed later
+acute_hfref <- all_hfref[all_hfref$Phase == "Acute",]
+chronic_hfref <- all_hfref[all_hfref$Phase == "Chronic",]
 view(acute_hfref)
+view(chronic_hfref)
 
 #background characteristics table
 table_1_list_vars <- c("Phase","Age","Sex","Hcholortreated","HTNtreatedoruntreated","IHD","Stroke","AF",
@@ -102,32 +213,47 @@ table_1_list_vars <- c("Phase","Age","Sex","Hcholortreated","HTNtreatedoruntreat
                        "Thiazidediuretic","MRAs","Digoxin","PPI","Aspirin","OtherAntiplatlets",
                        "Anticoagulant","Entresto","HFrEF","LVEF","RVdysfunction")
 
-table1 <- CreateTableOne(vars = table_1_list_vars, data = all_hfref,strata = c("Phase"), export.word = TRUE)
-table1
 
-#Table1 looks good. The labels from Excel didn't carry over so we can relabel them here or it may be easier in word
+?CreateTableOne
+
+#it says in createtableone that for the vars = argument, "If empty, all variables in the data frame specified in the data argument are used."
+#try creating a data frame for just table on variables
+T1_dataframe <- all_hfref%>%
+          dplyr::select(Phase:RVdysfunction)
+
+table1 <- CreateTableOne(data = T1_dataframe, 
+                         strata = c("Phase"))
+
+?CreateTableOne
+table1
+#success
 
 #Check normality of continous variables
-#"Age" is only continuous variable in this table
+#"Age" and "LVEF" are the only continuous variable in this table
 shapiro.test(acute_hfref$Age)
 shapiro.test(chronic_hfref$Age)
+shapiro.test(acute_hfref$LVEF)
+shapiro.test(chronic_hfref$LVEF)
 #age is normally distributed in both groups
+#LVEF is non normmally distributed in both groups
 
-#export table 1
-table_1_p <- print(table1, quote = FALSE, noSpaces = TRUE, printToggle = FALSE)
-write.csv(table_1_p, file = "myTable.csv")
-getwd()
+#try print with labels
+print(table1, varLabels = T, nonnormal = "LVEF")
+?print.TableOne
+
+print_table_one <- print(table1,varLabels = T, nonnormal = "LVEF")
+write.csv(print_table_one, file = "CH3_Table_1_labelled.csv")
 #success
 
 #test
 table_2 <- all_hfref %>%
-  select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`, SCAIxAv,Phase) %>%              #variables needed,no2,no3,adma,aix
+  dplyr::select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`, SCAIxAv,Phase) %>%              #variables needed,no2,no3,adma,aix
   tbl_summary(
     by = Phase,
     missing = "no",
     statistic = SCAIxAv ~ "{mean} ({sd})"
     ) %>%
-  add_difference()
+  add_p
 
 print(table_2)
   
@@ -144,18 +270,72 @@ print(table_2)
 
 
 initial_log_model <-
-  glm(Phase ~ Sex + Age + HTNtreatedoruntreated + MRAs + Nitrate + NitriteNO2nM, data = all_hfref, family = binomial())
-finalModel <- stepAIC(initial_log_model, direction = "backward")
-summary(initial_log_model)
+  glm(Phase ~ Sex + 
+        Age + HTNtreatedoruntreated + 
+        MRAs + Nitrate + NitriteNO2nM,
+        data = all_hfref, family = binomial())
+
+backwardsModel <- stepAIC(initial_log_model, direction = "backward")
+summary(backwardsModel)
 view(all_hfref)
 
 class(all_hfref$NitriteNO2nM)
 
 #get Odds ratios, confidence intervals and p values for initial logistic regression model
-logistic.display(initial_log_model)
+logistic.display(backwardsModel)
 
 #MRAs, organic nitrates and HTN all significant for the logistic regression model.
-#
+nitrite_glm <-
+  glm(Phase ~ HTNtreatedoruntreated + 
+        MRAs + Nitrate + NitriteNO2nM,
+      data = all_hfref, family = binomial())
+
+summary(nitrite_glm)
+logistic.display(nitrite_glm)
+
+rm(nitrite_stept_test)
+
+
+#Nitrate no3 glm model
+nitrate_glm <- 
+  glm(Phase ~ HTNtreatedoruntreated + 
+        MRAs + Nitrate + NitrateNO3uM,
+      data = all_hfref,
+        family = binomial())
+
+summary(nitrate_glm)
+logistic.display(nitrate_glm)
+
+#ADMA glm model
+ADMA_glm <- 
+  glm(Phase ~ HTNtreatedoruntreated + 
+        MRAs + Nitrate + ADMAμM,
+      data = all_hfref,
+      family = binomial())
+
+summary(ADMA_glm)
+logistic.display(ADMA_glm)
+
+#3-NT model
+nitrotyrosine_glm <- 
+  glm(Phase ~ HTNtreatedoruntreated + 
+        MRAs + Nitrate + `@3NTnM`,
+      data = all_hfref,
+      family = binomial())
+
+summary(nitrotyrosine_glm)
+
+
+#AIx Modeal
+AIx_glm <-
+  glm(Phase ~ HTNtreatedoruntreated + 
+        MRAs + Nitrate + SCAIxAv,
+      data = all_hfref,
+      family = binomial())
+
+summary(AIx_glm)
+logistic.display(AIx_glm)
+
 
 
 #Graphs to plot
@@ -180,29 +360,12 @@ rcorr(as.matrix(corr_data_matrix_ch3), type = "spearman")
 #nice, this is a way better result
 #now have all data required for this outcome
 
-
-#Unsure which type of plot will look the best, let's try a boxplot
-all_hfref %>% 
-  dplyr::select(NitriteNO2nM,Phase)%>%
-  boxplot(NitriteNO2nM ~ Phase,
-          main="Different boxplots for each month",
-          xlab="Month Number",
-          ylab="Degree Fahrenheit",
-          col="orange",
-          border="brown"
-  )
-
-?boxplot
-all_hfref %>%
-  dplyr::select(NitriteNO2nM,Phase)%>%
-stripchart(NitriteNO2nM ~ Phase,
-           vertical = TRUE,
-           method = jitter())
+####### PLOTS FOR CHAPTER 3 #######
 
 #try a few different geoms to see which one is suits better.
 #box,jitter, dotplot etc
 
-#figure 2 as Box, Plasma NO2- in chronic and acute HFrEF
+#figure 1 as Box, Plasma NO2- in chronic and acute HFrEF
 
 figure_1_box <- all_hfref %>%
   ggplot(aes(x=Phase, y=NitriteNO2nM)) + 
@@ -229,7 +392,7 @@ figure_1_dot <- all_hfref %>%
                stackratio=2,
                dotsize=1,
                binwidth = 0.07) + 
-  scale_y_log10()                           #change y axis to log scale as data is non-gaussian
+  scale_y_log10() #change y axis to log scale as data is non-gaussian
   
 #print to check progress
 figure_1_dot
@@ -239,21 +402,30 @@ figure_1_dot <- figure_1_dot + stat_summary(fun.y = median, geom="crossbar",
 figure_1_dot
 
 #also add p value
-figure_1_dot <- figure_1_dot + stat_compare_means()
+figure_1_dot <- figure_1_dot + 
+                stat_compare_means(label = "p.format",
+                                   label.x = 1.4,
+                                   label.y = 3)
+
+figure_1_dot
 
 #graph looks good so far, need to updates asthetics.
 #relabel both axes
+
 figure_1_dot <- figure_1_dot + labs(title = expression(bold("Plasma NO"[2]^"-"*~"in Chronic and Acute HFrEF")),
                                     y = expression(bold("NO"[2]^"-"*~"(nM)")),
                                     x = "")
 
-figure_1_dot
+?use_label
+
+
+?use_labels
 #success
 
 
 #change the 0 and 1 to Chronic HFrEF and Acute HfrEF respectively
 figure_1_dot <- figure_1_dot + 
-  scale_x_discrete(labels=c("0" = "Chronic HFrEF", "1" = "Acute HFrEF"))
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFrEF", "Acute" = "Acute HFrEF"))
 figure_1_dot
 #success
 
@@ -267,6 +439,12 @@ figure_1_dot <- figure_1_dot + theme(plot.title = element_text(face = "bold"),
                                      axis.text.x = element_text(face = "bold"))
 figure_1_dot
 #success
+
+#save plot
+ggsave(filename = "Figure 1 Nitrite Dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
 
 #Now for figure 2
 #create dotplot for plasma nitrate levels in chronic HFrEF and Acute HFrEF patients
@@ -287,9 +465,12 @@ figure_2_dot <- all_hfref %>%
 figure_2_dot              #so far so good
 
 #add median line
-figure_2_dot <- figure_2_dot + stat_summary(fun.y = median, geom="crossbar",
-                                            size=0.3, color="red", width = 0.4) + 
-  stat_compare_means()
+figure_2_dot <- figure_2_dot + 
+  stat_summary(fun.y = median, geom="crossbar",
+                size=0.3, color="red", width = 0.4) + 
+  stat_compare_means(label = "p.format",
+                     label.x = 1.4,
+                     label.y = 3)
 
 #check again
 figure_2_dot
@@ -307,7 +488,7 @@ figure_2_dot
 
 #change the 0 and 1 to Chronic HFrEF and Acute HfrEF respectively
 figure_2_dot <- figure_2_dot + 
-  scale_x_discrete(labels=c("0" = "Chronic HFrEF", "1" = "Acute HFrEF"))
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFrEF", "Acute" = "Acute HFrEF"))
 
 #check again
 figure_2_dot
@@ -323,6 +504,12 @@ figure_2_dot <- figure_2_dot + theme(plot.title = element_text(face = "bold"),
                                      axis.text.x = element_text(face = "bold"))
 figure_2_dot
 #success
+
+#save plot
+ggsave(filename = "Figure 2 Nitrate Dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
 
 #Nice. Need to perform some correlation analyses for the secondary outcome variables
 #start by graphing no2- against no3-
@@ -358,6 +545,12 @@ figure_3_scatter <- figure_3_scatter +  scale_shape_discrete(labels = c("Chronic
 figure_3_scatter
 #nice
 
+#save plot
+ggsave(filename = "Figure 3 nitrate scatter",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
 #figure 4, dot plot displaying plasma ADMA concentrations between patients with acute and chronic HFrEF
 #try and keep code more condensed
 
@@ -378,7 +571,7 @@ ADMA_HFrEF_dotplot <- all_hfref %>%
   stat_summary(fun.y = median, geom="crossbar",
                size=0.3, color="red", width = 0.4) + 
   
-  scale_x_discrete(labels=c("0" = "Chronic", "1" = "Acute")) +
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFrEF", "Acute" = "Acute HFrEF")) +
   
   theme(plot.title = element_text(face = "bold"),
         axis.title = element_text(face = "bold"),
@@ -390,8 +583,15 @@ ADMA_HFrEF_dotplot <- all_hfref %>%
                      label.x = 1.4,
                      label.y = 1)
   
-
+#test
 ADMA_HFrEF_dotplot
+
+#save plot
+ggsave(filename = "Figure 4 ADMA Dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
 
 
 #figure_5 dotplot displaying difference in concentrations of 3NT between acute and chronic HFrEF
@@ -414,7 +614,7 @@ figure_5_dot_3NT <-
   stat_summary(fun.y = median, geom="crossbar",
                size=0.3, color="red", width = 0.4) + 
   
-  scale_x_discrete(labels=c("0" = "Chronic", "1" = "Acute")) +
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFrEF", "Acute" = "Acute HFrEF")) +
   
   theme(plot.title = element_text(face = "bold"),
         axis.title = element_text(face = "bold"),
@@ -428,6 +628,12 @@ figure_5_dot_3NT <-
 
 figure_5_dot_3NT
 #success
+
+#save plot
+ggsave(filename = "Figure 5 3NT Dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
 
 #compare AIx between chronic and acute HFrEF using a dotplot
 
@@ -449,7 +655,7 @@ figure_6_dot_AIx <-
   stat_summary(fun.y = median, geom="crossbar",
                size=0.3, color="red", width = 0.4) + 
   
-  scale_x_discrete(labels=c("0" = "Chronic", "1" = "Acute")) +
+  scale_x_discrete(labels=c("Chronic" = "Chronic HFrEF", "Acute" = "Acute HFrEF")) +
   
   theme(plot.title = element_text(face = "bold"),
         axis.title = element_text(face = "bold"),
@@ -463,6 +669,12 @@ figure_6_dot_AIx <-
 
 figure_6_dot_AIx
 #success
+
+#save plot
+ggsave(filename = "Figure 6 AIx dotplot",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
 
 #need to check correlations of no2 concentrations with both ADMA and 3NT
 #make geom_point() graph of each of these, then perform correlation analyses
@@ -491,6 +703,12 @@ scale_shape_discrete(labels = c("Chronic", "Acute")) +
 figure_7_adma_no2_corr
 #success
 
+#save plot
+ggsave(filename = "Figure 7 ADMA Scatter",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
 
 #now create scatterplot of NO2 and 3NT in the HFrEF patient cohort
 #Correlation between plasma NO2- and ADMA in the total HFrEF cohort
@@ -515,3 +733,10 @@ figure_8_3NT_no2_corr <-
 #final check of scatterplot
 figure_8_3NT_no2_corr
 #success
+
+ggsave(filename = "Figure 8 3NT Scatter",
+       plot = figure_8_3NT_no2_corr,
+       device = "jpeg",
+       dpi = 1000)
+
+#rm(list = ls())
