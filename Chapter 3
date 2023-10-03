@@ -14,9 +14,11 @@ library(ggpubr)
 library(Hmisc)
 library(common)
 library(expss)
+library(here)
 library(tidyverse) #always load tidyverse last
 
 #Chapter 3 Script
+here()
 
 phd_df <- read_excel("~/Desktop/PhD_Data/PHD_data_Final.xlsx")
 View(phd_df)
@@ -37,6 +39,7 @@ phd_df <- phd_df %>%
 #check again
 phd_df %>% glimpse()
 #success
+
 
 
 #all variables are doubles
@@ -256,6 +259,7 @@ table_2 <- all_hfref %>%
   add_p
 
 print(table_2)
+
   
 
 
@@ -295,6 +299,12 @@ logistic.display(nitrite_glm)
 
 rm(nitrite_stept_test)
 
+#need to build table to add it to table two
+mv1<- tbl_regression(nitrite_glm,
+                     exponentiate = TRUE,
+                     include = NitriteNO2nM)
+mv1
+
 
 #Nitrate no3 glm model
 nitrate_glm <- 
@@ -306,6 +316,11 @@ nitrate_glm <-
 summary(nitrate_glm)
 logistic.display(nitrate_glm)
 
+mv2 <- tbl_regression(nitrate_glm,
+                      exponentiate = TRUE,
+                      include = NitrateNO3uM)
+mv2
+
 #ADMA glm model
 ADMA_glm <- 
   glm(Phase ~ HTNtreatedoruntreated + 
@@ -316,6 +331,38 @@ ADMA_glm <-
 summary(ADMA_glm)
 logistic.display(ADMA_glm)
 
+#building table
+mv3 <- tbl_regression(ADMA_glm,
+                      exponentiate = TRUE,
+                      include = ADMAμM)
+
+mv3
+#Adma CIs have massive range
+
+all_hfref <- all_hfref %>%
+  mutate(ADMAμM_10 = ADMAμM*10)
+
+ADMA_glm_10 <- 
+  glm(Phase ~ HTNtreatedoruntreated + 
+        MRAs + Nitrate + ADMAμM_10,
+      data = all_hfref,
+      family = binomial())
+
+summary(ADMA_glm_10)
+logistic.display(ADMA_glm_10)
+
+#override multivariate table build
+mv3 <- tbl_regression(ADMA_glm_10,
+                      exponentiate = TRUE,
+                      include = ADMAμM_10)
+
+#confirm more normal range for CIs
+mv3
+
+#add in footnote of table_2
+#""odds ratio for 0.1 increase in ADMA""
+
+
 #3-NT model
 nitrotyrosine_glm <- 
   glm(Phase ~ HTNtreatedoruntreated + 
@@ -325,8 +372,13 @@ nitrotyrosine_glm <-
 
 summary(nitrotyrosine_glm)
 
+#build table
+mv4 <- tbl_regression(nitrotyrosine_glm,
+                      exponentiate = TRUE,
+                      include = `@3NTnM`)
 
-#AIx Modeal
+
+#AIx Model
 AIx_glm <-
   glm(Phase ~ HTNtreatedoruntreated + 
         MRAs + Nitrate + SCAIxAv,
@@ -336,6 +388,19 @@ AIx_glm <-
 summary(AIx_glm)
 logistic.display(AIx_glm)
 
+#building table
+mv5 <- tbl_regression(AIx_glm,
+                      exponentiate = TRUE,
+                      include = SCAIxAv)
+
+#stich table 2 together
+
+mv_stacked_table <- tbl_stack(list(mv1,mv2,mv3,mv4,mv5))
+mv_stacked_table
+
+table_2_merged <- tbl_merge(list(table_2,mv_stacked_table),
+                            tab_spanner = c("**Univariate**","**Multivariate**"))
+table_2_merged
 
 
 #Graphs to plot
