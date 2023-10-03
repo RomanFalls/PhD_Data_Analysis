@@ -1,1 +1,226 @@
+library(readxl)
+library(validate)
+library(tableone)
+library(magrittr)
+library(officer)
+library(flextable)
+library(magrittr)
+library(gtsummary)
+library(leaps)
+library(MASS)
+library(epiDisplay)
+library(ggplot2)
+library(ggpubr)
+library(Hmisc)
+library(common)
+library(expss)
+library(labelled)
+library(tidyverse) #always last
+
+
+#load cleaned data from chapter 3
+#use read_labelled_csv to make sure labels are included
+phd_data <- read_labelled_csv("/Users/roman/PhD Data/CleaneR_phd_data.csv")
+
+#filter patients in acute phase
+all_ADHF<- phd_data %>%
+  filter(Phase=="Acute")
+
+#need to split data into two groups, ADHF w AKI + ADHF wo AKI
+adhf_and_aki <- all_ADHF %>%
+  filter(AKI == "1")
+
+adhf_no_aki <- all_ADHF %>%
+  filter(AKI=="0")
+
+#create table one
+#remembering from chapter 4 that it's easiest to create a separate data frame
+#for all of the variables we need in table 1 when using the createtableone function
+
+Table1_dataframe <- all_ADHF %>%
+  dplyr::select(Phase:RVdysfunction,AKI)
+
+table1 <- CreateTableOne(data = Table1_dataframe, 
+                         strata = c("AKI"))
+
+table1
+
+#Check normality of continous variables
+#"Age" and "LVEF" are the only continuous variable in this table
+shapiro.test(adhf_and_aki$Age)
+shapiro.test(adhf_no_aki$Age)
+#age is normally distributed
+#now LVEF
+shapiro.test(adhf_and_aki$LVEF)
+shapiro.test(adhf_no_aki$LVEF)
+#both are nonnormal distribution
+#try print with labels
+print(table1, varLabels = T, nonnormal = c("LVEF, Age"))
+?print.TableOne
+
+print_table_one <- print(table1,varLabels = T, nonnormal = c("LVEF, Age"))
+write.csv(print_table_one, file = "CH5_Table_1_labelled.csv")
+#success
+
+#need to create table of primary and secondary outcome variables
+#comparison between ADHF and ADHF + AKI
+
+
+ch5_table_2 <- all_ADHF %>%
+  dplyr::select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`,
+                SCAIxAv,eGFR,CystatinCugml,Creat,highestcreat,Urea,BNPpgml,AKI) %>%             
+  tbl_summary(
+    by = AKI,
+    missing = "no",
+  ) %>%
+  add_p
+
+print(ch5_table_2)
+
+#need to recode AKI
+all_ADHF <- all_ADHF %>%
+  mutate(AKI=recode(AKI, `1` = "ADHF + AKI", `0` = "ADHF"))
+
+#also need to add labels to egfr, creatinine,highest creatinine and Urea
+all_ADHF <- all_ADHF %>%
+  set_variable_labels(eGFR = "eGFR (ml/min)",
+                      Creat = "Creatinine (First) (μM)",
+                      highestcreat = "Creatinine (Highest) (μM)",
+                      Urea = "Urea (mM)")
+
+
+#Try table 2 again
+ch4_table_2 <- all_ADHF %>%
+  dplyr::select(NitriteNO2nM,NitrateNO3uM,ADMAμM,`@3NTnM`,
+                SCAIxAv,eGFR,CystatinCugml,Creat,highestcreat,Urea,BNPpgml,AKI) %>%             
+  tbl_summary(
+    by = AKI,
+    missing = "no",
+  ) %>%
+  add_p %>%
+  modify_header(all_stat_cols() ~ "**{level}**<br>N = {N}")
+
+
+print(ch4_table_2)
+
+#plot NO2- against egfr, creatinine, urea and cystatin c
+CH5_Fig1_NO2_egfr <- 
+  all_ADHF %>%
+  ggplot(aes(x = NitriteNO2nM, y = eGFR)) +
+  geom_point(aes(shape = AKI, colour = AKI), size = 3) +
+  theme_classic2() + 
+  
+  labs(caption = expression(bold("Correlation between plasma nitrite and eGFR in the ADHF cohort")),
+       y = expression(bold("eGFR (ml/min")),
+       x = expression(bold("Plasma NO"[2]^"-"*~"(nM)"))) +
+  
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1)),
+        legend.title = element_text(colour="black", size=10,face="bold"),
+        legend.background = element_rect(fill="white",size=0.5, 
+                                         linetype="solid", 
+                                         colour ="black"))
+  
+
+CH5_Fig1_NO2_egfr
+#save plot
+ggsave(filename = "Chapter 5 Figure 2 nitrite vs eGFR",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#plot NO2- against creatinine, urea and cystatin c
+CH5_Fig2_NO2_creat <- 
+  all_ADHF %>%
+  ggplot(aes(x = NitriteNO2nM, y = Creat)) +
+  geom_point(aes(shape = AKI, colour = AKI), size = 3) +
+  theme_classic2() + 
+  
+  labs(caption = expression(bold("Correlation between plasma nitrite and eGFR in the ADHF cohort")),
+       y = expression(bold("Creatinine (μM)")),
+       x = expression(bold("Plasma NO"[2]^"-"*~"(nM)"))) +
+  
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1)),
+        legend.title = element_text(colour="black", size=10,face="bold"),
+        legend.background = element_rect(fill="white",size=0.5, 
+                                         linetype="solid", 
+                                         colour ="black"))
+
+
+CH5_Fig1_NO2_creat
+
+#save plot
+ggsave(filename = "Chapter 5 Figure 1 nitrite vs creat",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#plot NO2- against urea and cystatin c
+CH5_Fig3_NO2_urea <- 
+  all_ADHF %>%
+  ggplot(aes(x = NitriteNO2nM, y = Urea)) +
+  geom_point(aes(shape = AKI, colour = AKI), size = 3) +
+  theme_classic2() + 
+  
+  labs(caption = expression(bold("Correlation between plasma nitrite and urea in the ADHF cohort")),
+       y = expression(bold("Urea (mM)")),
+       x = expression(bold("Plasma NO"[2]^"-"*~"(nM)"))) +
+  
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1)),
+        legend.title = element_text(colour="black", size=10,face="bold"),
+        legend.background = element_rect(fill="white",size=0.5, 
+                                         linetype="solid", 
+                                         colour ="black"))
+
+
+CH5_Fig3_NO2_urea
+
+#save plot
+ggsave(filename = "Chapter 5 Figure 3 nitrite vs creat",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#plot NO2- against cystatin c
+CH5_Fig4_NO2_cysc <- 
+  all_ADHF %>%
+  ggplot(aes(x = NitriteNO2nM, y = CystatinCugml)) +
+  geom_point(aes(shape = AKI, colour = AKI), size = 3) +
+  theme_classic2() + 
+  
+  labs(caption = expression(bold("Correlation between plasma nitrite and Cystatin C in the ADHF cohort")),
+       y = expression(bold("Urea (μg/ml)")),
+       x = expression(bold("Plasma NO"[2]^"-"*~"(nM)"))) +
+  
+  theme(plot.caption = element_text(hjust=0.5, size=rel(1)),
+        legend.title = element_text(colour="black", size=10,face="bold"),
+        legend.background = element_rect(fill="white",size=0.5, 
+                                         linetype="solid", 
+                                         colour ="black"))
+
+
+CH5_Fig4_NO2_cysc
+
+#save plot
+ggsave(filename = "Chapter 5 Figure 3 nitrite vs creat",
+       plot = last_plot(),
+       device = "jpeg",
+       dpi = 1000)
+
+#now we've got them visualised, lets look at some correlations
+
+corr_data_matrix_ch5 <- 
+  all_ADHF %>%
+  dplyr::select(NitriteNO2nM,NitrateNO3uM,ADMAμM,
+                `@3NTnM`,Creat,eGFR,Urea,
+                CystatinCugml,BNPpgml)
+
+cor(corr_data_matrix_ch5, method = "spearman", use = "complete.obs")
+#success, now do the same but for the p values
+
+rcorr(as.matrix(corr_data_matrix_ch5), type = "spearman")
+#success
+
+####CHAPTER 5 COMPLETE######
+
+
 
